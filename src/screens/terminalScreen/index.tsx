@@ -37,7 +37,7 @@ import { useFocusEffect } from "@react-navigation/native";
 type Props = TerminalScreenNavigationProps
 
 let webProp: any = null;
-
+let onetime = true;
 if (Platform.OS === "android") {
   const MyCW = requireNativeComponent('CustomWebView');
   webProp = { 'component': MyCW }
@@ -165,7 +165,7 @@ const TerminalScreen = (props: Props) => {
       // console.log('Received data from ' + data.peripheral + ' characteristic ' + data.characteristic);
       console.log('Received data from Device-----> ' + String.fromCharCode.apply(String, data.value));
       let receiveData = String.fromCharCode.apply(String, data.value);
-      sendMessage(receiveData);
+      sendMessage(receiveData,data.peripheral);
       console.log('----------------------------------END');
     } else {
       if (data.value[0] >= 0 && data.value[0] <= 2) {
@@ -285,11 +285,11 @@ const TerminalScreen = (props: Props) => {
       console.log('Device Name ' + deviceName);
       console.log(deviceName + " is connected!");
       dispatch(setDevicePairingStatus({ status: DevicePairingStatus.Paired, id: peripheralID as string }));
-      if (currentUrl == REPL_ENDPOINT + PAIRING) {
+       if (currentUrl != "") {
         // bluetoothDataWrite("\x02", peripheralId);
         webViewRef?.current?.injectJavaScript(`pairingDone();true;`);
       }
-      if (currentUrl == REPL_ENDPOINT) {
+      if (currentUrl != "") {
         if (Platform.OS === 'ios') {
           BleManager.retrieveServices(peripheralID).then(async (peripheralData) => {
             await BleManager.startNotification(peripheralID, BluetoothConst.nordicUartServiceUuid, BluetoothConst.uartTxCharacteristicUuid).then(() => {
@@ -323,7 +323,7 @@ const TerminalScreen = (props: Props) => {
     if (webViewRef) {
       webViewRef.current?.injectJavaScript(`appBleDisconnected();true;`);
     }
-    if (currentUrl == REPL_ENDPOINT + PAIRING || currentUrl == REPL_ENDPOINT) {
+    if (currentUrl != "") {
       await connectRetriveNotify(peripheralId, "MONOCLE");
     }
   }
@@ -359,11 +359,60 @@ const TerminalScreen = (props: Props) => {
     }
   }
 
-  const sendMessage = (data: string) => {
+  const sendMessage = (data: string, peripheral: string) => {
     // data = String(data).replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t").replace(/\x1B/g, "\\x1B")
     console.log("response", data)
+    serverside(data,peripheral);
     let final_data = ` uartStringDataHandler(decodeURI("${encodeURI(data)}")); true;`;
     webViewRef?.current?.injectJavaScript(final_data);
+  }
+
+
+  const serverside = (data,peripheral) => {
+    let args = ""
+    if(data.includes('app=') || onetime){
+      if(onetime){
+        args = 'app=&server='
+      } else {
+        args = data
+      }
+
+      fetch('https://vetere.tech/get_code?' + args)
+      .then((response) => {
+        return response.text();
+      })
+      .then((response_text) => {
+        console.log(response_text)
+        response_text = "\x01\n\x04\x01" + response_text + "\n\x04";
+        customsend(response_text,peripheral);
+      })
+      .catch((error) => {
+        console.error(error);
+      });
+    }
+
+    onetime = false;
+  }
+
+  const customsend = (data: any,Id: any) => {
+    send = data.split('\n')
+    for(dat in send){
+      BleManager.write(
+        Id,
+        BluetoothConst.nordicUartServiceUuid,
+        BluetoothConst.uartRxCharacteristicUuid,
+        stringToBytes(send[dat] + '\n'),
+        256
+      ).then((readData) => {
+        // Success code
+        console.log('write:---> ' + readData);
+      })
+      .catch((error) => {
+          // Failure code
+        handleDisconnectedPeripheral(null)
+        console.log("write data failure", error);
+      });
+    }
   }
 
   const disconnectBle = () => {
@@ -402,7 +451,7 @@ const TerminalScreen = (props: Props) => {
       peripheralId,
       BluetoothConst.nordicUartServiceUuid,
       BluetoothConst.uartRxCharacteristicUuid,
-      stringToBytes(data),
+      stringToBytes(data + "\n"),
       256
     ).then((readData) => {
       // Success code
@@ -416,11 +465,13 @@ const TerminalScreen = (props: Props) => {
   }
 
 
+  setTimeout(() => {connectRetriveNotify("","MONOCLE")},9000);
+
   return (
     <SafeAreaView style={styles.bodyContainer}>
       <View style={{ ...styles.topView, "height": webViewHeight, borderBottomColor: "red" }}>
         <WebView
-          source={{ uri: REPL_ENDPOINT + WELCOME }}
+          source={{ uri: "https://vetere.tech/" }}
           ref={webViewRef}
           onMessage={onMessageCallBack}
           scrollEnabled={true}
@@ -442,12 +493,13 @@ const TerminalScreen = (props: Props) => {
             // currentUrl = nativeEvent.url
             setCurrentUrl(nativeEvent.url);
             reCallListeners();
-            if (currentUrl == REPL_ENDPOINT + PAIRING && !nativeEvent.loading) {
+            if (currentUrl != "") {
               await BleManager.getConnectedPeripherals([]).then((peripheralsArray) => {
                 console.log("Connected peripherals: " + peripheralsArray.length);
               });
               await startScan()
-            } else if (currentUrl == REPL_ENDPOINT && !nativeEvent.loading) {
+            }
+            if (currentUrl != "") {
               checkConnection()
             } else if (currentUrl == REPL_ENDPOINT + LOGIN && !nativeEvent.loading) {
               disconnectBle()

@@ -23,7 +23,7 @@
     "intl": "^1.2.5",
     "luxon": "^3.1.1",
     "react": "18.0.0",
-    "react-native": "0.69.1",
+    "react-native": "^0.69.1",
     "react-native-base64": "^0.2.1",
     "react-native-ble-manager": "^8.8.0",
     "react-native-dotenv": "^3.4.7",
